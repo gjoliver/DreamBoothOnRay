@@ -1,3 +1,4 @@
+import pandas as pd
 import torch
 
 from ray.data import Dataset, read_images
@@ -58,14 +59,12 @@ def get_train_dataset(args, image_resolution=512):
     # two sets contain exactly the same number of images.
     # This is so we can zip them up during training to compute the
     # prior preserving loss in one pass.
-    instance_size = instance_dataset.count()
-    class_size = class_dataset.count()
-    duplicated_dataset = instance_dataset
-    # TODO: any better way to duplicate a dataset?
-    for i in range(class_size // instance_size - 1):
-        duplicated_dataset = duplicated_dataset.union(instance_dataset)
+    dup_times = class_dataset.count() // instance_dataset.count()
+    instance_dataset = instance_dataset.map_batches(
+        lambda df: pd.concat([df] * dup_times)
+    )
 
-    final_size = min(duplicated_dataset.count(), class_dataset.count())
+    final_size = min(instance_dataset.count(), class_dataset.count())
     train_dataset = (
         duplicated_dataset.limit(final_size).repartition(final_size).zip(
             class_dataset.limit(final_size).repartition(final_size)
