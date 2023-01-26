@@ -112,18 +112,7 @@ def train_fn(config):
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-
             target = noise_scheduler.get_velocity(latents, noise, timesteps)
-
-            # Get the target for loss depending on the prediction type
-            #if noise_scheduler.config.prediction_type == "epsilon":
-            #    target = noise
-            #elif noise_scheduler.config.prediction_type == "v_prediction":
-            #    target = noise_scheduler.get_velocity(latents, noise, timesteps)
-            #else:
-            #    raise ValueError(
-            #        f"Unknown prediction type {noise_scheduler.config.prediction_type}"
-            #    )
 
             loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
 
