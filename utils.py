@@ -9,6 +9,9 @@ def set_environ_vars():
     os.environ["RANK"] = str(session.get_world_rank())
     os.environ["WORLD_SIZE"] = str(session.get_world_size())
     os.environ["LOCAL_RANK"] = str(session.get_local_rank())
+    os.environ["OMP_NUM_THREADS"] = str(
+        session.get_trial_resources().bundles[-1].get("CPU", 1)
+    )
 
     # FSDP env vars
     os.environ["USE_FSDP"] = "true"
