@@ -34,7 +34,7 @@ def prior_preserving_loss(model_pred, target, weight):
 def train_fn(config):
     args = config["args"]
     set_environ_vars()
-    
+
     accelerator = Accelerator(
         logging_dir=path.join(session.get_trial_dir(), "accelerator_logs"),
     )
@@ -48,12 +48,12 @@ def train_fn(config):
     unet = UNet2DConditionModel.from_pretrained(MODEL_PATH, subfolder="unet")
     if is_xformers_available():
         unet.enable_xformers_memory_efficient_attention()
-    
+
     optimizer = torch.optim.AdamW(
         itertools.chain(unet.parameters(), text_encoder.parameters()),
         lr=args.lr,
     )
-    
+
     train_dataset = session.get_dataset_shard("train")
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset.to_torch(),
@@ -100,7 +100,9 @@ def train_fn(config):
                 noise = torch.randn_like(latents)
                 bsz = latents.shape[0]
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
+                timesteps = torch.randint(
+                    0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device
+                )
                 timesteps = timesteps.long()
 
                 # Add noise to the latents according to the noise magnitude at each timestep
