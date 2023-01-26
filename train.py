@@ -10,7 +10,7 @@ from ray.train.torch import TorchTrainer
 import torch
 from transformers import CLIPTextModel
 
-from data import get_train_dataset
+from dataset import get_train_dataset
 from flags import train_arguments
 from utils import get_weight_dtype, set_environ_vars
 
