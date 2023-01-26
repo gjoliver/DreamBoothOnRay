@@ -37,12 +37,12 @@ def train_fn(config):
     )
 
     # Load models
-    text_encoder = CLIPTextModel.from_pretrained(MODEL_PATH, subfolder="text_encoder")
-    noise_scheduler = DDPMScheduler.from_pretrained(MODEL_PATH, subfolder="scheduler")
-    vae = AutoencoderKL.from_pretrained(MODEL_PATH, subfolder="vae")
+    text_encoder = CLIPTextModel.from_pretrained(args.model_dir, subfolder="text_encoder")
+    noise_scheduler = DDPMScheduler.from_pretrained(args.model_dir, subfolder="scheduler")
+    vae = AutoencoderKL.from_pretrained(args.model_dir, subfolder="vae")
     # We are not training VAE part of the model.
     vae.requires_grad_(False)
-    unet = UNet2DConditionModel.from_pretrained(MODEL_PATH, subfolder="unet")
+    unet = UNet2DConditionModel.from_pretrained(args.model_dir, subfolder="unet")
     if is_xformers_available():
         unet.enable_xformers_memory_efficient_attention()
 
@@ -57,8 +57,6 @@ def train_fn(config):
         batch_size=args.train_batch_size,
         shuffle=True,
     )
-
-    print(f"Loaded training dataset (size: {train_dateset.size()})")
 
     # Prepare everything with `accelerator`.
     unet, text_encoder, optimizer, train_dataloader = accelerator.prepare(
@@ -145,7 +143,7 @@ def train_fn(config):
 
     if accelerator.is_main_process:
         pipeline = DiffusionPipeline.from_pretrained(
-            MODEL_PATH,
+            args.model_dir,
             unet=accelerator.unwrap_model(unet),
             text_encoder=accelerator.unwrap_model(text_encoder),
         )
@@ -160,13 +158,15 @@ if __name__ == "__main__":
     # Build training dataset.
     train_dataset = get_train_dataset(args)
 
+    print(f"Loaded training dataset (size: {train_dateset.size()})")
+
     # Train with Ray AIR TorchTrainer.
     trainer = TorchTrainer(
         train_fn,
         train_loop_config={
             "args": args
         },
-        scaling_config=ScalingConfig(use_gpu=True, num_workers=8),
+        scaling_config=ScalingConfig(use_gpu=True, num_workers=1),
         datasets={
             "train": train_dataset,
         },
