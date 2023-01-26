@@ -3,6 +3,7 @@ import math
 from os import path
 
 from accelerate import Accelerator
+import bitsandbytes as bnb
 from diffusers import AutoencoderKL, DDPMScheduler, DiffusionPipeline, UNet2DConditionModel
 from diffusers.utils.import_utils import is_xformers_available
 from ray.air import session, ScalingConfig
@@ -12,7 +13,7 @@ from transformers import CLIPTextModel
 
 from dataset import collate, get_train_dataset
 from flags import train_arguments
-from utils import get_weight_dtype, set_environ_vars
+from utils import set_environ_vars
 
 
 def prior_preserving_loss(model_pred, target, weight):
@@ -36,6 +37,7 @@ def train_fn(config):
 
     accelerator = Accelerator(
         logging_dir=path.join(session.get_trial_dir(), "accelerator_logs"),
+        mixed_precision='fp16',  # Use fp16 to save GRAM.
     )
 
     # Load models
@@ -48,7 +50,8 @@ def train_fn(config):
     if is_xformers_available():
         unet.enable_xformers_memory_efficient_attention()
 
-    optimizer = torch.optim.AdamW(
+    # Use 8bitAdam to save GRAM.
+    optimizer = bnb.optim.AdamW8bit(
         itertools.chain(unet.parameters(), text_encoder.parameters()),
         lr=args.lr,
     )
@@ -60,7 +63,8 @@ def train_fn(config):
         unet, text_encoder, optimizer
     )
 
-    weight_dtype = get_weight_dtype(accelerator)
+    # Use fp16 dtype to save GRAM.
+    weight_dtype = torch.float16
 
     # Move vae to device and cast weights to half-precision.
     # VAE is only used for inference, keeping weights in full precision is not required.
@@ -106,9 +110,7 @@ def train_fn(config):
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = text_encoder(
-                batch["prompt_ids"].to(accelerator.device, dtype=weight_dtype)
-            )[0]
+            encoder_hidden_states = text_encoder(batch["prompt_ids"].to(accelerator.device))[0]
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample

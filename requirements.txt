@@ -1,4 +1,5 @@
 accelerate==0.15.0
+bitsandbytes
 diffusers==0.11.1
 huggingface_hub
 numpy==1.21
