@@ -22,7 +22,7 @@ python run_model.py                    \
 Save a few (4 to 5) images of the subject being fine-tuned
 in a local directory. Then launch the training job with:
 ```
-python test.py                                    \
+python train.py                                   \
   --model_dir=<model_dir>                         \
   --output_dir=<output_dir>                       \
   --instance_images_dir=<train_images_dir>        \
