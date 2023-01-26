@@ -82,53 +82,54 @@ def train_fn(config):
         text_encoder.train()
 
         for step, batch in enumerate(train_dataloader):
-            with accelerator.accumulate(unet):
-                optimizer.zero_grad()
+            optimizer.zero_grad()
 
-                # Convert images to latent space
-                latents = vae.encode(batch["image"].to(dtype=weight_dtype)).latent_dist.sample()
-                latents = latents * 0.18215
+            # Convert images to latent space
+            latents = vae.encode(batch["image"].to(dtype=weight_dtype)).latent_dist.sample()
+            latents = latents * 0.18215
 
-                # Sample noise that we'll add to the latents
-                noise = torch.randn_like(latents)
-                bsz = latents.shape[0]
-                # Sample a random timestep for each image
-                timesteps = torch.randint(
-                    0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device
+            # Sample noise that we'll add to the latents
+            noise = torch.randn_like(latents)
+            bsz = latents.shape[0]
+            # Sample a random timestep for each image
+            timesteps = torch.randint(
+                0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device
+            )
+            timesteps = timesteps.long()
+
+            # Add noise to the latents according to the noise magnitude at each timestep
+            # (this is the forward diffusion process)
+            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+
+            # Get the text embedding for conditioning
+            encoder_hidden_states = text_encoder(batch["prompt_ids"])[0]
+
+            # Predict the noise residual
+            model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+
+            # Get the target for loss depending on the prediction type
+            if noise_scheduler.config.prediction_type == "epsilon":
+                target = noise
+            elif noise_scheduler.config.prediction_type == "v_prediction":
+                target = noise_scheduler.get_velocity(latents, noise, timesteps)
+            else:
+                raise ValueError(
+                    f"Unknown prediction type {noise_scheduler.config.prediction_type}"
                 )
-                timesteps = timesteps.long()
 
-                # Add noise to the latents according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
-                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+            loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
 
-                # Get the text embedding for conditioning
-                encoder_hidden_states = text_encoder(batch["prompt_ids"])[0]
+            accelerator.backward(loss)
 
-                # Predict the noise residual
-                model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+            # Gradient clipping before optimizer stepping.
+            accelerator.clip_grad_norm_(
+                itertools.chain(unet.parameters(), text_encoder.parameters()),
+                args.max_grad_norm
+            )
 
-                # Get the target for loss depending on the prediction type
-                if noise_scheduler.config.prediction_type == "epsilon":
-                    target = noise
-                elif noise_scheduler.config.prediction_type == "v_prediction":
-                    target = noise_scheduler.get_velocity(latents, noise, timesteps)
-                else:
-                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+            optimizer.step()
 
-                loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
-
-                accelerator.backward(loss)
-                if accelerator.sync_gradients:
-                    params_to_clip = itertools.chain(unet.parameters(), text_encoder.parameters())
-                    accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-
-                optimizer.step()
-
-            # Checks if the accelerator has performed an optimization step behind the scenes
-            if accelerator.sync_gradients:
-                global_step += 1
-
+            global_step += 1
             results = {
                 "step": global_step,
                 "loss": loss.detach().item(),
