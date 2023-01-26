@@ -82,6 +82,12 @@ def train_arguments():
         default=1.0,
         help="The weight for prior preservation loss."
     )
+    parser.add_argument(
+        "--max_grad_norm",
+        type=float,
+        default=1.0,
+        help="Maximum gradient norm."
+    )
 
     return parser
 
@@ -90,7 +96,7 @@ def cache_model_flags():
     """Commandline arguments for running local model caching script.
     """
     parser = argparse.ArgumentParser()
-    
+
     parser.add_argument(
         "--model_dir",
         type=str,
@@ -117,7 +123,7 @@ def run_model_flags():
     """Commandline arguments for running a tuned DreamBooth model.
     """
     parser = argparse.ArgumentParser()
-    
+
     parser.add_argument(
         "--model_dir",
         type=str,

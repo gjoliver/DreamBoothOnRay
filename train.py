@@ -140,10 +140,10 @@ def train_fn(config):
         if global_step >= max_train_steps:
             break
 
-    # Create the pipeline using using the trained modules and save it.
     accelerator.wait_for_everyone()
 
     if accelerator.is_main_process:
+        # Create pipeline using the trained modules and save it.
         pipeline = DiffusionPipeline.from_pretrained(
             args.model_dir,
             unet=accelerator.unwrap_model(unet),
