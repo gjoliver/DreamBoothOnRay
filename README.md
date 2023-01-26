@@ -12,10 +12,10 @@ Note that actual model files will be downloaded into
 
 Create a regularization image set for a class of subjects:
 ```
-python run_model.py \
-  --model_dir=<model_dir> \
-  --output_dir=<output_dir> \
-  --prompts="photo of a <class_name>"
+python run_model.py                    \
+  --model_dir=<model_dir>              \
+  --output_dir=<output_dir>            \
+  --prompts="photo of a <class_name>"  \
   --num_samples_per_prompt=200
 ```
 
