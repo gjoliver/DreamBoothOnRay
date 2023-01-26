@@ -66,7 +66,7 @@ def get_train_dataset(args, image_resolution=512):
 
     final_size = min(instance_dataset.count(), class_dataset.count())
     train_dataset = (
-        duplicated_dataset.limit(final_size).repartition(final_size).zip(
+        instance_dataset.limit(final_size).repartition(final_size).zip(
             class_dataset.limit(final_size).repartition(final_size)
         )
     )
