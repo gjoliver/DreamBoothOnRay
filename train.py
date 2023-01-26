@@ -1,7 +1,6 @@
 from os import path
 
 from accelerate import Accelerator
-from accelerate.logging import get_logger
 from diffusers import AutoencoderKL, DDPMScheduler, DiffusionPipeline, UNet2DConditionModel
 from diffusers.utils.import_utils import is_xformers_available
 from ray.air import session, ScalingConfig
@@ -12,8 +11,6 @@ from transformers import CLIPTextModel
 from data import get_train_dataset
 from flags import train_arguments
 from utils import get_weight_dtype, set_environ_vars
-
-logger = get_logger(__name__)
 
 
 def prior_preserving_loss(model_pred, target, weight):
@@ -61,6 +58,8 @@ def train_fn(config):
         shuffle=True,
     )
 
+    print(f"Loaded training dataset (size: {train_dateset.size()})")
+
     # Prepare everything with `accelerator`.
     unet, text_encoder, optimizer, train_dataloader = accelerator.prepare(
         unet, text_encoder, optimizer, train_dataloader
@@ -75,13 +74,7 @@ def train_fn(config):
     num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
     total_batch_size = args.train_batch_size * accelerator.num_processes
 
-    logger.info("***** Running training *****")
-    logger.info(f"  Num examples = {train_dataset.count()}")
-    logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
-    logger.info(f"  Num Epochs = {num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    logger.info(f"  Total optimization steps = {args.max_train_steps}")
+    print(f"Running {num_train_epochs} epochs. Max training steps {args.max_train_steps}.")
 
     global_step = 0
     for epoch in range(num_train_epochs):
@@ -156,7 +149,7 @@ def train_fn(config):
             unet=accelerator.unwrap_model(unet),
             text_encoder=accelerator.unwrap_model(text_encoder),
         )
-        pipeline.save_pretrained(OUTPUT_DIR)
+        pipeline.save_pretrained(args.output_dir)
 
     accelerator.end_training()
 
@@ -180,4 +173,4 @@ if __name__ == "__main__":
     )
     result = trainer.fit()
 
-    logger.info(result)
+    print(result)
