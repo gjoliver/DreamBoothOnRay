@@ -12,3 +12,11 @@ def set_environ_vars():
     os.environ["OMP_NUM_THREADS"] = str(
         session.get_trial_resources().bundles[-1].get("CPU", 1)
     )
+
+    # DeepSpeed env vars
+    os.environ["ACCELERATE_USE_DEEPSPEED"] = "true"
+    os.environ["ACCELERATE_DEEPSPEED_ZERO_STAGE"] = "2"
+    os.environ["ACCELERATE_GRADIENT_ACCUMULATION_STEPS"] = "1"
+    os.environ["ACCELERATE_GRADIENT_CLIPPING"] = "1.0"
+    os.environ["ACCELERATE_DEEPSPEED_OFFLOAD_OPTIMIZER_DEVICE"] = "cpu"
+    os.environ["ACCELERATE_DEEPSPEED_OFFLOAD_PARAM_DEVICE"] = "cpu"

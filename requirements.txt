@@ -1,6 +1,7 @@
 accelerate==0.15.0
 bitsandbytes
 diffusers==0.11.1
+deepspeed
 huggingface_hub
 numpy==1.21
 torchvision

@@ -3,7 +3,8 @@ import math
 from os import path
 
 from accelerate import Accelerator
-import bitsandbytes as bnb
+from accelerate.utils.dataclasses import DeepSpeedPlugin
+from deepspeed.ops.adam import DeepSpeedCPUAdam
 from diffusers import AutoencoderKL, DDPMScheduler, DiffusionPipeline, UNet2DConditionModel
 from diffusers.utils.import_utils import is_xformers_available
 from ray.air import session, ScalingConfig
@@ -36,9 +37,22 @@ def train_fn(config):
     args = config["args"]
     set_environ_vars()
 
+    # Use DeepSpeed so we can run on T4 GPUs.
+    deepspeed_plugin = DeepSpeedPlugin(
+        gradient_accumulation_steps=1,
+        gradient_clipping=1.0,
+        zero_stage=2,
+        offload_optimizer_device="cpu",
+        offload_param_device="cpu",
+    )
+    deepspeed_plugin.deepspeed_config["train_micro_batch_size_per_gpu"] = (
+        args.train_batch_size
+    )
+
     accelerator = Accelerator(
         logging_dir=path.join(session.get_trial_dir(), "accelerator_logs"),
         mixed_precision='fp16',  # Use fp16 to save GRAM.
+        deepspeed_plugin=deepspeed_plugin,
     )
 
     # Load models
@@ -51,8 +65,8 @@ def train_fn(config):
     if is_xformers_available():
         unet.enable_xformers_memory_efficient_attention()
 
-    # Use 8bitAdam to save GRAM.
-    optimizer = bnb.optim.AdamW8bit(
+    # Use DeepSpeedCPUAdam to save GRAM.
+    optimizer = DeepSpeedCPUAdam(
         itertools.chain(unet.parameters(), text_encoder.parameters()),
         lr=args.lr,
     )
