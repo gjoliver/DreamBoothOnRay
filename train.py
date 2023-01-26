@@ -10,7 +10,7 @@ from ray.train.torch import TorchTrainer
 import torch
 from transformers import CLIPTextModel
 
-from dataset import get_train_dataset
+from dataset import collate, get_train_dataset
 from flags import train_arguments
 from utils import get_weight_dtype, set_environ_vars
 
@@ -54,19 +54,18 @@ def train_fn(config):
     )
 
     train_dataset = session.get_dataset_shard("train")
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset.to_torch(),
-        batch_size=args.train_batch_size,
-    )
 
     # Prepare everything with `accelerator`.
-    unet, text_encoder, optimizer, train_dataloader = accelerator.prepare(
-        unet, text_encoder, optimizer, train_dataloader
+    unet, text_encoder, optimizer = accelerator.prepare(
+        unet, text_encoder, optimizer
     )
+
+    weight_dtype = get_weight_dtype(accelerator)
 
     # Move vae to device and cast weights to half-precision.
     # VAE is only used for inference, keeping weights in full precision is not required.
-    vae.to(accelerator.device, dtype=get_weight_dtype(accelerator))
+    vae.to(accelerator.device, dtype=weight_dtype)
+    text_encoder.to(accelerator.device, dtype=weight_dtype)
 
     # Train!
     num_update_steps_per_epoch = train_dataset.count()
@@ -81,11 +80,16 @@ def train_fn(config):
         unet.train()
         text_encoder.train()
 
-        for step, batch in enumerate(train_dataloader):
+        for step, batch in enumerate(
+            train_dataset.iter_torch_batches(batch_size=args.train_batch_size)
+        ):
+            batch = collate(batch)
             optimizer.zero_grad()
 
             # Convert images to latent space
-            latents = vae.encode(batch["image"].to(dtype=weight_dtype)).latent_dist.sample()
+            latents = vae.encode(
+                batch["images"].to(accelerator.device, dtype=weight_dtype)
+            ).latent_dist.sample()
             latents = latents * 0.18215
 
             # Sample noise that we'll add to the latents
@@ -102,20 +106,24 @@ def train_fn(config):
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = text_encoder(batch["prompt_ids"])[0]
+            encoder_hidden_states = text_encoder(
+                batch["prompt_ids"].to(accelerator.device, dtype=weight_dtype)
+            )[0]
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
+            target = noise_scheduler.get_velocity(latents, noise, timesteps)
+
             # Get the target for loss depending on the prediction type
-            if noise_scheduler.config.prediction_type == "epsilon":
-                target = noise
-            elif noise_scheduler.config.prediction_type == "v_prediction":
-                target = noise_scheduler.get_velocity(latents, noise, timesteps)
-            else:
-                raise ValueError(
-                    f"Unknown prediction type {noise_scheduler.config.prediction_type}"
-                )
+            #if noise_scheduler.config.prediction_type == "epsilon":
+            #    target = noise
+            #elif noise_scheduler.config.prediction_type == "v_prediction":
+            #    target = noise_scheduler.get_velocity(latents, noise, timesteps)
+            #else:
+            #    raise ValueError(
+            #        f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+            #    )
 
             loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
 
