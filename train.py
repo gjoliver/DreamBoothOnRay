@@ -68,7 +68,7 @@ def train_fn(config):
     vae.to(accelerator.device, dtype=get_weight_dtype(accelerator))
 
     # Train!
-    num_update_steps_per_epoch = train_dateset.size()
+    num_update_steps_per_epoch = train_dataset.count()
     num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
     total_batch_size = args.train_batch_size * accelerator.num_processes
 
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     # Build training dataset.
     train_dataset = get_train_dataset(args)
 
-    print(f"Loaded training dataset (size: {train_dateset.size()})")
+    print(f"Loaded training dataset (size: {train_dataset.count()})")
 
     # Train with Ray AIR TorchTrainer.
     trainer = TorchTrainer(
