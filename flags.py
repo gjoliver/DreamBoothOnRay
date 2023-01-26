@@ -133,6 +133,13 @@ def run_model_flags():
         help="Directory of the tuned model files.",
     )
     parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        required=True,
+        help="Directory to save the generated images.",
+    )
+    parser.add_argument(
         "--prompts",
         type=str,
         default=None,

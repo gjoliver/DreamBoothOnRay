@@ -1,6 +1,6 @@
 # Cache model files to a local directory
 
-from os import path
+import os
 
 from huggingface_hub import snapshot_download
 

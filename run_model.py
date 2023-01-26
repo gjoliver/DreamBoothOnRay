@@ -8,11 +8,12 @@ from flags import run_model_flags
 
 
 def run(args):
+    print(f"Loading model from {args.model_dir}")
     pipeline = DiffusionPipeline.from_pretrained(
         args.model_dir, torch_dtype=torch.float16
     )
     pipeline.set_progress_bar_config(disable=True)
-    if torch.cuda.is_available()
+    if torch.cuda.is_available():
         pipeline.to("cuda")
 
     prompts = args.prompts.split(",")
