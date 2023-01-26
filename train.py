@@ -1,4 +1,5 @@
 import itertools
+import math
 from os import path
 
 from accelerate import Accelerator
@@ -56,7 +57,6 @@ def train_fn(config):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset.to_torch(),
         batch_size=args.train_batch_size,
-        shuffle=True,
     )
 
     # Prepare everything with `accelerator`.

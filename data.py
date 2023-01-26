@@ -61,4 +61,4 @@ def get_train_dataset(args, image_resolution=512):
     )
 
     # Join the two datasets. This is out training dataset.
-    return class_dataset.union(instance_dataset)
+    return class_dataset.union(instance_dataset).random_shuffle()
