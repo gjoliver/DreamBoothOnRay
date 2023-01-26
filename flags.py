@@ -107,16 +107,17 @@ def cache_model_flags():
     parser.add_argument(
         "--model_name",
         type=str,
-        default="",
+        default="CompVis/stable-diffusion-v1-4",
         help="Name of the huggingface model.",
     )
     parser.add_argument(
         "--revision",
         type=str,
-        default=None,
-        required=True,
+        default="3857c45b7d4e78b3ba0f39d4d7f50a2a05aa23d4",
         help="Revision of the huggingface model repo to cache.",
     )
+
+    return parser
 
 
 def run_model_flags():
@@ -144,3 +145,5 @@ def run_model_flags():
         default=1,
         help="Number of images to generate for each prompt.",
     )
+
+    return parser
