@@ -77,6 +77,7 @@ def train_fn(config):
 
     global_step = 0
     for epoch in range(num_train_epochs):
+        # Athough not required, text_encoder is trained together with unet here..
         unet.train()
         text_encoder.train()
 
@@ -136,8 +137,8 @@ def train_fn(config):
             session.report(logs)
             accelerator.log(logs, step=global_step)
 
-            if global_step >= max_train_steps:
-                break
+        if global_step >= max_train_steps:
+            break
 
     # Create the pipeline using using the trained modules and save it.
     accelerator.wait_for_everyone()
