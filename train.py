@@ -9,6 +9,7 @@ from diffusers.utils.import_utils import is_xformers_available
 from ray.air import session, ScalingConfig
 from ray.train.torch import TorchTrainer
 import torch
+import torch.nn.functional as F
 from transformers import CLIPTextModel
 
 from dataset import collate, get_train_dataset
