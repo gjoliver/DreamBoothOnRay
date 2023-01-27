@@ -139,7 +139,7 @@ def train_fn(config):
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-            target = get_target(noisy_latents, noise)
+            target = get_target(noise_scheduler, noise)
 
             loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
             accelerator.backward(loss)
