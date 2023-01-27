@@ -50,7 +50,6 @@ def train_fn(config):
     )
 
     accelerator = Accelerator(
-        logging_dir=path.join(session.get_trial_dir(), "accelerator_logs"),
         mixed_precision='fp16',  # Use fp16 to save GRAM.
         deepspeed_plugin=deepspeed_plugin,
     )
@@ -147,10 +146,8 @@ def train_fn(config):
             results = {
                 "step": global_step,
                 "loss": loss.detach().item(),
-                "lr": lr_scheduler.get_last_lr()[0],
             }
             session.report(logs)
-            accelerator.log(logs, step=global_step)
 
         if global_step >= max_train_steps:
             break
