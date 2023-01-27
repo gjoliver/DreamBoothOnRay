@@ -50,7 +50,6 @@ def train_fn(config):
     )
 
     accelerator = Accelerator(
-        logging_dir=path.join(session.get_trial_dir(), "accelerator_logs"),
         mixed_precision='fp16',  # Use fp16 to save GRAM.
         deepspeed_plugin=deepspeed_plugin,
     )
@@ -81,6 +80,9 @@ def train_fn(config):
     # VAE is only used for inference, keeping weights in full precision is not required.
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
+
+    if accelerator.is_main_process:
+        accelerator.init_trackers("dream_booth", config=vars(args))
 
     # Train!
     num_update_steps_per_epoch = train_dataset.count()
@@ -143,9 +145,8 @@ def train_fn(config):
                 "loss": loss.detach().item(),
             }
             session.report(results)
-            accelerator.log(results, step=global_step)
 
-        if global_step >= max_train_steps:
+        if global_step >= args.max_train_steps:
             break
 
     accelerator.wait_for_everyone()
