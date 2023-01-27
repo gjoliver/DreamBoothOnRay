@@ -10,6 +10,19 @@ from transformers import AutoTokenizer
 def get_train_dataset(args, image_resolution=512):
     """Build a Ray Dataset for fine-tuning DreamBooth model.
     """
+    # Now load image sets.
+    instance_dataset = read_images(args.instance_images_dir)
+    class_dataset = read_images(args.class_images_dir)
+
+    # We now duplicate the instance images multiple times to make the
+    # two sets contain exactly the same number of images.
+    # This is so we can zip them up during training to compute the
+    # prior preserving loss in one pass.
+    dup_times = class_dataset.count() // instance_dataset.count()
+    instance_dataset = instance_dataset.map_batches(
+        lambda df: pd.concat([df] * dup_times)
+    )
+
     # Load tokenizer for tokenizing the image prompts.
     tokenizer = AutoTokenizer.from_pretrained(
         pretrained_model_name_or_path=args.model_dir, subfolder="tokenizer",
@@ -28,42 +41,24 @@ def get_train_dataset(args, image_resolution=512):
     class_prompt_ids = _tokenize(args.class_prompt)[0]
     instance_prompt_ids = _tokenize(args.instance_prompt)[0]
 
-    # Now load image sets.
-
     # Image preprocessing.
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Resize(
-                image_resolution,
-                interpolation=transforms.InterpolationMode.BILINEAR,
-            ),
-            transforms.CenterCrop(image_resolution),
+            transforms.RandomCrop(image_resolution),
             transforms.Normalize([0.5], [0.5]),
         ]
     )
     preprocessor = TorchVisionPreprocessor(["image"], transform=transform)
 
-    instance_dataset = preprocessor.transform(
-        read_images(args.instance_images_dir)
-    ).add_column(
+    instance_dataset = preprocessor.transform(instance_dataset).add_column(
         "prompt_ids", lambda df: [instance_prompt_ids] * len(df)
     )
-    class_dataset = preprocessor.transform(
-        read_images(args.class_images_dir)
-    ).add_column(
+    class_dataset = preprocessor.transform(class_dataset).add_column(
         "prompt_ids", lambda df: [class_prompt_ids] * len(df)
     )
 
-    # We now duplicate the instance images multiple times to make the
-    # two sets contain exactly the same number of images.
-    # This is so we can zip them up during training to compute the
-    # prior preserving loss in one pass.
-    dup_times = class_dataset.count() // instance_dataset.count()
-    instance_dataset = instance_dataset.map_batches(
-        lambda df: pd.concat([df] * dup_times)
-    )
-
+    # Now, zip the images up.
     final_size = min(instance_dataset.count(), class_dataset.count())
     train_dataset = (
         instance_dataset.limit(final_size).repartition(final_size).zip(

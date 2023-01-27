@@ -33,6 +33,17 @@ def prior_preserving_loss(model_pred, target, weight):
     return loss + weight * prior_loss
 
 
+def get_target(scheduler, noise):
+    """Get the target for loss depending on the prediction type.
+    """
+    pred_type = scheduler.config.prediction_type
+    if pred_type == "epsilon":
+        return noise
+    if pred_type == "v_prediction":
+        return scheduler.get_velocity(latents, noise, timesteps)
+    raise ValueError(f"Unknown prediction type {pred_type}")
+
+
 def train_fn(config):
     args = config["args"]
     set_environ_vars()
@@ -128,10 +139,9 @@ def train_fn(config):
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-            target = noise_scheduler.get_velocity(latents, noise, timesteps)
+            target = get_target(noisy_latents, noise)
 
             loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
-
             accelerator.backward(loss)
 
             # Gradient clipping before optimizer stepping.
@@ -146,8 +156,8 @@ def train_fn(config):
             }
             session.report(results)
 
-        if global_step >= args.max_train_steps:
-            break
+            if global_step >= args.max_train_steps:
+                break
 
     accelerator.wait_for_everyone()
 
