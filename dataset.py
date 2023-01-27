@@ -42,6 +42,10 @@ def get_train_dataset(args, image_resolution=512):
     instance_prompt_ids = _tokenize(args.instance_prompt)[0]
 
     # Image preprocessing.
+    # Instance and class images used by this example are in sizes 700x700
+    # and 512x512 respectively.
+    # Depending on the sizes of actual training images, there may need to be a
+    # transforms.Resize() step as well.
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
