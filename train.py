@@ -50,12 +50,14 @@ def train_fn(config):
     )
 
     accelerator = Accelerator(
+        logging_dir=path.join(session.get_trial_dir(), "accelerator_logs"),
         mixed_precision='fp16',  # Use fp16 to save GRAM.
         deepspeed_plugin=deepspeed_plugin,
     )
 
     # Load models
     text_encoder = CLIPTextModel.from_pretrained(args.model_dir, subfolder="text_encoder")
+    text_encoder.requires_grad_(False)
     noise_scheduler = DDPMScheduler.from_pretrained(args.model_dir, subfolder="scheduler")
     vae = AutoencoderKL.from_pretrained(args.model_dir, subfolder="vae")
     # We are not training VAE part of the model.
@@ -65,25 +67,20 @@ def train_fn(config):
         unet.enable_xformers_memory_efficient_attention()
 
     # Use DeepSpeedCPUAdam to save GRAM.
-    optimizer = DeepSpeedCPUAdam(
-        itertools.chain(unet.parameters(), text_encoder.parameters()),
-        lr=args.lr,
-    )
+    optimizer = DeepSpeedCPUAdam(unet.parameters(), lr=args.lr)
 
     train_dataset = session.get_dataset_shard("train")
 
     # Prepare everything with `accelerator`.
-    unet, text_encoder, optimizer = accelerator.prepare(
-        unet, text_encoder, optimizer
-    )
+    unet, optimizer = accelerator.prepare(unet, optimizer)
 
     # Use fp16 dtype to save GRAM.
     weight_dtype = torch.float16
 
     # Move vae to device and cast weights to half-precision.
     # VAE is only used for inference, keeping weights in full precision is not required.
-    vae.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
+    vae.to(accelerator.device, dtype=weight_dtype)
 
     # Train!
     num_update_steps_per_epoch = train_dataset.count()
@@ -94,19 +91,20 @@ def train_fn(config):
 
     global_step = 0
     for epoch in range(num_train_epochs):
-        # Athough not required, text_encoder is trained together with unet here..
         unet.train()
-        text_encoder.train()
 
         for step, batch in enumerate(
-            train_dataset.iter_torch_batches(batch_size=args.train_batch_size)
+            train_dataset.iter_torch_batches(
+                batch_size=args.train_batch_size,
+                device=accelerator.device,
+            )
         ):
             batch = collate(batch)
             optimizer.zero_grad()
 
             # Convert images to latent space
             latents = vae.encode(
-                batch["images"].to(accelerator.device, dtype=weight_dtype)
+                batch["images"].to(dtype=weight_dtype)
             ).latent_dist.sample()
             latents = latents * 0.18215
 
@@ -124,7 +122,7 @@ def train_fn(config):
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = text_encoder(batch["prompt_ids"].to(accelerator.device))[0]
+            encoder_hidden_states = text_encoder(batch["prompt_ids"])[0]
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
@@ -135,10 +133,7 @@ def train_fn(config):
             accelerator.backward(loss)
 
             # Gradient clipping before optimizer stepping.
-            accelerator.clip_grad_norm_(
-                itertools.chain(unet.parameters(), text_encoder.parameters()),
-                args.max_grad_norm
-            )
+            accelerator.clip_grad_norm_(unet.parameters(), args.max_grad_norm)
 
             optimizer.step()
 
@@ -147,7 +142,8 @@ def train_fn(config):
                 "step": global_step,
                 "loss": loss.detach().item(),
             }
-            session.report(logs)
+            session.report(results)
+            accelerator.log(results, step=global_step)
 
         if global_step >= max_train_steps:
             break
@@ -159,7 +155,6 @@ def train_fn(config):
         pipeline = DiffusionPipeline.from_pretrained(
             args.model_dir,
             unet=accelerator.unwrap_model(unet),
-            text_encoder=accelerator.unwrap_model(text_encoder),
         )
         pipeline.save_pretrained(args.output_dir)
 
