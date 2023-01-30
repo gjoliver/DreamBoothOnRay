@@ -18,10 +18,10 @@ Note that actual model files will be downloaded into
 ### Step 2
 Create a regularization image set for a class of subjects:
 ```
-python run_model.py                    \
-  --model_dir=<model_dir>              \
-  --output_dir=<output_dir>            \
-  --prompts="photo of a <class_name>"  \
+python run_model.py \
+  --model_dir=<model_dir> \
+  --output_dir=<output_dir> \
+  --prompts="photo of a <class_name>" \
   --num_samples_per_prompt=200
 ```
 
@@ -29,12 +29,12 @@ python run_model.py                    \
 Save a few (4 to 5) images of the subject being fine-tuned
 in a local directory. Then launch the training job with:
 ```
-python train.py                                   \
-  --model_dir=<model_dir>                         \
-  --output_dir=<output_dir>                       \
-  --instance_images_dir=<train_images_dir>        \
+python train.py \
+  --model_dir=<model_dir> \
+  --output_dir=<output_dir> \
+  --instance_images_dir=<train_images_dir> \
   --instance_prompt="a photo of sks <class_name>" \
-  --class_images_dir=<class_images_dir>           \
+  --class_images_dir=<class_images_dir> \
   --class_prompt="a photo of a <class_name>"
 ```
 
