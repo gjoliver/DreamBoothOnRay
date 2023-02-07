@@ -1,10 +1,13 @@
+"""
+python train.py   --model_dir=/mnt/shared_storage/jungong/dream_booth/models/models--CompVis--stable-diffusion-v1-4/snapshots/3857c45b7d4e78b3ba0f39d4d7f50a2a05aa23d4/   --output_dir=/mnt/shared_storage/jungong/dream_booth/outputs/attempt_4/   --instance_images_dir=/mnt/shared_storage/jungong/dream_booth/images/sks/   --instance_prompt="a photo of sks lego car"   --class_images_dir=/mnt/shared_storage/jungong/dream_booth/images/lego/   --class_prompt="a photo of a lego car"
+"""
+
 import itertools
 import math
 from os import path
 
 from accelerate import Accelerator
-from accelerate.utils.dataclasses import DeepSpeedPlugin
-from deepspeed.ops.adam import DeepSpeedCPUAdam
+import bitsandbytes as bnb
 from diffusers import AutoencoderKL, DDPMScheduler, DiffusionPipeline, UNet2DConditionModel
 from diffusers.utils.import_utils import is_xformers_available
 from ray.air import session, ScalingConfig
@@ -48,26 +51,12 @@ def train_fn(config):
     args = config["args"]
     set_environ_vars()
 
-    # Use DeepSpeed so we can run on T4 GPUs.
-    deepspeed_plugin = DeepSpeedPlugin(
-        gradient_accumulation_steps=1,
-        gradient_clipping=1.0,
-        zero_stage=2,
-        offload_optimizer_device="cpu",
-        offload_param_device="cpu",
-    )
-    deepspeed_plugin.deepspeed_config["train_micro_batch_size_per_gpu"] = (
-        args.train_batch_size
-    )
-
     accelerator = Accelerator(
         mixed_precision='fp16',  # Use fp16 to save GRAM.
-        deepspeed_plugin=deepspeed_plugin,
     )
 
     # Load models
     text_encoder = CLIPTextModel.from_pretrained(args.model_dir, subfolder="text_encoder")
-    text_encoder.requires_grad_(False)
     noise_scheduler = DDPMScheduler.from_pretrained(args.model_dir, subfolder="scheduler")
     vae = AutoencoderKL.from_pretrained(args.model_dir, subfolder="vae")
     # We are not training VAE part of the model.
@@ -76,13 +65,16 @@ def train_fn(config):
     if is_xformers_available():
         unet.enable_xformers_memory_efficient_attention()
 
-    # Use DeepSpeedCPUAdam to save GRAM.
-    optimizer = DeepSpeedCPUAdam(unet.parameters(), lr=args.lr)
+    # 8bit Adam to save GRAM.
+    optimizer = torch.optim.Adagrad(
+        itertools.chain(text_encoder.parameters(), unet.parameters()),
+        lr=args.lr,
+    )
 
     train_dataset = session.get_dataset_shard("train")
 
     # Prepare everything with `accelerator`.
-    unet, optimizer = accelerator.prepare(unet, optimizer)
+    text_encoder, unet, optimizer = accelerator.prepare(text_encoder, unet, optimizer)
 
     # Use fp16 dtype to save GRAM.
     weight_dtype = torch.float16
@@ -104,6 +96,7 @@ def train_fn(config):
 
     global_step = 0
     for epoch in range(num_train_epochs):
+        text_encoder.train()
         unet.train()
 
         for step, batch in enumerate(
@@ -145,7 +138,10 @@ def train_fn(config):
             accelerator.backward(loss)
 
             # Gradient clipping before optimizer stepping.
-            accelerator.clip_grad_norm_(unet.parameters(), args.max_grad_norm)
+            accelerator.clip_grad_norm_(
+                itertools.chain(text_encoder.parameters(), unet.parameters()),
+                rgs.max_grad_norm,
+            )
 
             optimizer.step()
 
@@ -165,6 +161,7 @@ def train_fn(config):
         # Create pipeline using the trained modules and save it.
         pipeline = DiffusionPipeline.from_pretrained(
             args.model_dir,
+            text_encoder=accelerator.unwrap_model(text_encoder),
             unet=accelerator.unwrap_model(unet),
         )
         pipeline.save_pretrained(args.output_dir)
