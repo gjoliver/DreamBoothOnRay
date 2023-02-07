@@ -52,11 +52,12 @@ def train_fn(config):
     set_environ_vars()
 
     accelerator = Accelerator(
-        mixed_precision='fp16',  # Use fp16 to save GRAM.
+        mixed_precision='bf16',  # Use bf16 to save GRAM.
     )
 
     # Load models
     text_encoder = CLIPTextModel.from_pretrained(args.model_dir, subfolder="text_encoder")
+    text_encoder.requires_grad_(False)
     noise_scheduler = DDPMScheduler.from_pretrained(args.model_dir, subfolder="scheduler")
     vae = AutoencoderKL.from_pretrained(args.model_dir, subfolder="vae")
     # We are not training VAE part of the model.
@@ -66,23 +67,20 @@ def train_fn(config):
         unet.enable_xformers_memory_efficient_attention()
 
     # 8bit Adam to save GRAM.
-    optimizer = torch.optim.Adagrad(
-        itertools.chain(text_encoder.parameters(), unet.parameters()),
-        lr=args.lr,
-    )
+    optimizer = torch.optim.Adagrad(unet.parameters(), lr=args.lr)  #bnb.optim.AdamW8bit
 
     train_dataset = session.get_dataset_shard("train")
 
     # Prepare everything with `accelerator`.
-    text_encoder, unet, optimizer = accelerator.prepare(text_encoder, unet, optimizer)
+    unet, optimizer = accelerator.prepare(unet, optimizer)
 
-    # Use fp16 dtype to save GRAM.
-    weight_dtype = torch.float16
+    # Use bf16 dtype to save GRAM.
+    weight_dtype = torch.bfloat16
 
     # Move vae to device and cast weights to half-precision.
     # VAE is only used for inference, keeping weights in full precision is not required.
-    text_encoder.to(accelerator.device, dtype=weight_dtype)
-    vae.to(accelerator.device, dtype=weight_dtype)
+    text_encoder.to("cuda:1", dtype=weight_dtype)
+    vae.to("cuda:1", dtype=weight_dtype)
 
     if accelerator.is_main_process:
         accelerator.init_trackers("dream_booth", config=vars(args))
@@ -96,7 +94,6 @@ def train_fn(config):
 
     global_step = 0
     for epoch in range(num_train_epochs):
-        text_encoder.train()
         unet.train()
 
         for step, batch in enumerate(
@@ -110,7 +107,7 @@ def train_fn(config):
 
             # Convert images to latent space
             latents = vae.encode(
-                batch["images"].to(dtype=weight_dtype)
+                batch["images"].to("cuda:1", dtype=weight_dtype)
             ).latent_dist.sample()
             latents = latents * 0.18215
 
@@ -128,20 +125,17 @@ def train_fn(config):
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = text_encoder(batch["prompt_ids"])[0]
+            encoder_hidden_states = text_encoder(batch["prompt_ids"].to("cuda:1"))[0]
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
             target = get_target(noise_scheduler, noise)
 
-            loss = prior_preserving_loss(model_pred, target, args.prior_loss_weight)
+            loss = prior_preserving_loss(model_pred.to("cuda:1"), target, args.prior_loss_weight)
             accelerator.backward(loss)
 
             # Gradient clipping before optimizer stepping.
-            accelerator.clip_grad_norm_(
-                itertools.chain(text_encoder.parameters(), unet.parameters()),
-                rgs.max_grad_norm,
-            )
+            accelerator.clip_grad_norm_(unet.parameters(), rgs.max_grad_norm)
 
             optimizer.step()
 
@@ -161,7 +155,6 @@ def train_fn(config):
         # Create pipeline using the trained modules and save it.
         pipeline = DiffusionPipeline.from_pretrained(
             args.model_dir,
-            text_encoder=accelerator.unwrap_model(text_encoder),
             unet=accelerator.unwrap_model(unet),
         )
         pipeline.save_pretrained(args.output_dir)
@@ -183,7 +176,13 @@ if __name__ == "__main__":
         train_loop_config={
             "args": args
         },
-        scaling_config=ScalingConfig(use_gpu=True, num_workers=1),
+        scaling_config=ScalingConfig(
+            use_gpu=True,
+            num_workers=1,
+            resources_per_worker={
+                "GPU": 4,
+            }
+        ),
         datasets={
             "train": train_dataset,
         },
