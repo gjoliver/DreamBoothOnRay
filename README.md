@@ -1,5 +1,7 @@
 # DreamBoothOnRay
-Fine tune dream booth model using Ray AIR
+Fine tune dream booth model using Ray Dataset and Ray Train on a single g5.12xlarge instance using 2 A10G GPUs.
+
+The demo tunes both the text_encoder and unet parts of Stable Diffusion, and utilizes the prior preserving loss function.
 
 <p align="center">
   <img src="https://github.com/gjoliver/DreamBoothOnRay/blob/master/assets/example.png" />
