@@ -73,7 +73,7 @@ def get_train_dataset(args, image_resolution=512):
     return train_dataset.random_shuffle()
 
 
-def collate(batch):
+def collate(batch, device, dtype):
     """Build Torch training batch.
     """
     # Layout of the batch is that instance image data (pixels, prompt ids) occupy
@@ -87,6 +87,6 @@ def collate(batch):
     prompt_ids = torch.cat([batch["prompt_ids"], batch["prompt_ids_1"]], dim=0)
 
     return {
-        "prompt_ids": prompt_ids,
-        "images": images,
+        "prompt_ids": prompt_ids,  # token ids should stay int.
+        "images": images.to(device, dtype=dtype),
     }
